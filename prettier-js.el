@@ -79,23 +79,16 @@ a `before-save-hook'."
             (const :tag "None" nil))
       :group 'prettier-js)
 
-(defcustom prettier-js-width-mode nil
-  "Specify width when formatting buffer contents."
-  :type '(choice
-          (const :tag "Window width" window)
-          (const :tag "Fill column" fill)
-          (const :tag "None" nil))
-  :group 'prettier-js)
 
 (defcustom prettier-js-buffer-global-args '("--single-quote")
   "List of default global args to send to prettier command."
   :type '(repeat string)
-  :group 'prettier-js-buffer-global-args)
+  :group 'prettier-js)
 
 (defcustom prettier-js-buffer-blacklist-regexp "/\\(tmp\\|node_modules\\)"
   "Regexp of directories to disable prettier setup."
   :type 'regexp
-  :group 'prettier-js-buffer-global-args)
+  :group 'prettier-js)
 
 
 (defcustom prettier-js-buffer-parsers '(("md" . "markdown")
@@ -195,40 +188,28 @@ a `before-save-hook'."
                        (file-name-base it)))
             (prettier-js-buffer-node-modules-bin-files)))
 
-
-(defun prettier-js-buffer-setup ()
-  "Enable prettier from project directory."
-  (unless (or (not prettier-js-buffer-blacklist-regexp)
-              (string-match-p "\\(snippets\\|node_modules\\)"
-                              default-directory))
-    (let ((local-cmd (prettier-js-buffer-local-command)))
-      (setq-local prettier-js-command
-                  (or local-cmd
-                      (executable-find "prettier")))
-      (when (and prettier-js-command
-                 (not local-cmd))
-        (setq-local prettier-js-args prettier-js-buffer-global-args))
-      (when (fboundp 'prettier-js-mode)
-        (prettier-js-mode (if prettier-js-command 1 -1))))))
-
 (defun prettier-js-buffer-string (string &rest options)
   "Apply prettier on STRING with OPTIONS.
 Return list of two elements: status (t or nil) and string with result."
-  (when-let ((prettier-cmd (prettier-js-buffer-find-exec)))
+  (when-let ((prettier-cmd prettier-js-command))
+    (setq options (delq nil
+                        (flatten-list options)))
     (with-temp-buffer
       (insert string)
-      (when (eq 0
-                (apply #'call-process-region
-                       (append
-                        (list (point-min)
-                              (point-max)
-                              prettier-cmd
-                              t
-                              t
-                              nil)
-                        (delq nil
-                              (flatten-list options)))))
-        (buffer-string)))))
+      (cond ((zerop (apply #'call-process-region
+                           (append
+                            (list (point-min)
+                                  (point-max)
+                                  prettier-cmd
+                                  t
+                                  t
+                                  nil)
+                            options)))
+             (message "Applied prettier `%s' with args `%s'"
+                      prettier-js-command options)
+             (buffer-string))
+            (t (message "prettier errors: %s" (buffer-string))
+               nil)))))
 
 (defun prettier-js-buffer-format-region (beg end &rest args)
   "Run PRETTIER-FN with ARGS on region between BEG and END."
@@ -247,77 +228,6 @@ Return list of two elements: status (t or nil) and string with result."
         formatted))))
 
 
-;;;###autoload
-(defun prettier-js-buffer (&optional arg)
-  "Set and run prettier from project directory, if found othervise as global.
-With prefix ARG ask which parser to use."
-  (interactive "P")
-  (if-let ((local-prettier
-            (when buffer-file-name
-              (prettier-js-buffer-local-command))))
-      (setq-local prettier-js-command (prettier-js-buffer-find-exec))
-    (let ((args
-           prettier-js-buffer-global-args)
-          (parser (or (and buffer-file-name
-                           (cdr
-                            (assoc (file-name-extension buffer-file-name)
-                                   prettier-js-buffer-parsers)))
-                      (cdr  (assoc major-mode
-                                   prettier-js-buffer-major-modes-parsers)))))
-      (setq-local prettier-js-args
-                  (if parser
-                      (append (list (concat "--parser=" parser)) args)
-                    args))
-      (setq-local prettier-js-command (or (prettier-js-buffer-local-command)
-                                          (executable-find "prettier")))
-      (setq-local prettier-js-show-errors 'echo)))
-  (when prettier-js-command
-    (setq-local prettier-js-args
-                (delete nil (if arg
-                                (append
-                                 prettier-js-args
-                                 (list (concat "--parser="
-                                               (completing-read
-                                                "--parser="
-                                                (seq-uniq
-                                                 (mapcar #'cdr
-                                                         prettier-js-buffer-parsers))))))
-                              prettier-js-args)))
-    (condition-case nil
-        (progn (if prettier-js-command
-                   (prettier-js-mode 1)
-                 (prettier-js-mode -1))
-               (prettier-js))
-      (error (prettier-js-mode -1)
-             (when-let ((formatted (prettier-js-buffer-string
-                                    (buffer-substring-no-properties
-                                     (point-min)
-                                     (point-max))
-                                    prettier-js-args)))
-               (if (fboundp 'replace-region-contents)
-                   (replace-region-contents (point-min)
-                                            (point-max)
-                                            (lambda () formatted))
-                 (delete-region (point-min)
-                                (point-max))
-                 (insert formatted)))))))
-
-(defun prettier-js-buffer-search-text-prop (prop &optional direction)
-  "Search for text property PROP in current buffer.
-If DIRECTION is negative integer, search backward, othervise forward."
-  (unless direction (setq direction (setq direction 1)))
-  (let ((search-fn (if (> direction 0)
-                       'text-property-search-forward
-                     'text-property-search-backward)))
-    (if-let ((ref (get-text-property (point) prop)))
-        (let ((pos (if (> direction 0)
-                       (next-single-char-property-change (point) prop)
-                     (previous-single-char-property-change (point) prop))))
-          (goto-char pos)
-          (funcall search-fn prop))
-      (funcall search-fn prop))))
-
-;;;###autoload
 (defun prettier-js-buffer-region ()
   "Run PRETTIER-FN with ARGS or `prettier-js'.
 If value of the variable `buffer-file-name' is nil, run `prettier-js',
@@ -343,7 +253,7 @@ otherwise run prettier-fn."
 
 
 
-(defun prettier-js-buffer-next-single-char-property-change ()
+(defun prettier-js-next-read-only-property-change ()
   "Jump to the position of next read-only property change.
 Return the position of point if found, or nil."
   (when-let ((beg (next-single-property-change (point) 'read-only)))
@@ -355,31 +265,24 @@ Return the position of point if found, or nil."
 If value of the variable `buffer-file-name' is nil, run `prettier-js',
 otherwise run prettier-fn."
   (save-excursion
-    (let* ((parser
-            (or (and buffer-file-name
-                     (cdr
-                      (assoc (file-name-extension buffer-file-name)
-                             prettier-js-buffer-parsers)))
-                (cdr  (assoc major-mode
-                             prettier-js-buffer-major-modes-parsers))))
+    (let* ((args prettier-js-args)
            (res)
            (fn (lambda ()
                  (let* ((start (point))
                         (end
-                         (prettier-js-buffer-next-single-char-property-change))
+                         (prettier-js-next-read-only-property-change))
                         (content
                          (buffer-substring-no-properties start
                                                          (or end (point-max)))))
                    (prettier-js-buffer-format-region start (or end (point-max))
-                                                     "--parser=" parser)
-                   (push content
-                         res)))))
+                                                     args)
+                   (push content res)))))
       (goto-char (point-min))
       (unless (get-text-property (point) 'read-only)
         (funcall fn))
       (while
           (when (get-text-property (point) 'read-only)
-            (prettier-js-buffer-next-single-char-property-change))
+            (prettier-js-next-read-only-property-change))
         (funcall fn))
       res)))
 
@@ -471,14 +374,7 @@ Display the output in ERRBUF"
                                               "*prettier errors*")))
          (patchbuf (get-buffer-create "*prettier patch*"))
          (coding-system-for-read 'utf-8)
-         (coding-system-for-write 'utf-8)
-         (width-args
-          (cond ((equal prettier-js-width-mode 'window)
-                 (list "--print-width" (number-to-string (window-body-width))))
-                ((equal prettier-js-width-mode 'fill)
-                 (list "--print-width" (number-to-string fill-column)))
-                (t
-                 '()))))
+         (coding-system-for-write 'utf-8))
     (unwind-protect
         (save-restriction
           (widen)
@@ -497,7 +393,7 @@ Display the output in ERRBUF"
                                                             outputfile)
                                                       errorfile)
                       nil
-                      (append prettier-js-args width-args
+                      (append prettier-js-args
                               (list
                                "--stdin"
                                "--stdin-filepath"
@@ -508,7 +404,8 @@ Display the output in ERRBUF"
                                      "--strip-trailing-cr" "-"
                                      outputfile)
                 (prettier-js--apply-rcs-patch patchbuf)
-                (message "Applied prettier with args `%s'" prettier-js-args)
+                (message "Applied prettier `%s' with args `%s'"
+                         prettier-js-command prettier-js-args)
                 (if errbuf (prettier-js--kill-error-buffer errbuf)))
             (message "Could not apply prettier")
             (if errbuf
@@ -519,6 +416,7 @@ Display the output in ERRBUF"
       (delete-file bufferfile)
       (delete-file outputfile))))
 
+
 (defun prettier-js-setup ()
   "Run PRETTIER-FN with ARGS or `prettier-js'.
 If value of the variable `buffer-file-name' is nil, run `prettier-js',
@@ -527,30 +425,33 @@ otherwise run prettier-fn."
             (when buffer-file-name
               (prettier-js-buffer-local-command))))
       (setq-local prettier-js-command local-prettier)
-    (let ((args
-           prettier-js-buffer-global-args)
-          (parser (or (and buffer-file-name
-                           (cdr
-                            (assoc (file-name-extension buffer-file-name)
-                                   prettier-js-buffer-parsers)))
-                      (cdr  (assoc major-mode
-                                   prettier-js-buffer-major-modes-parsers)))))
+    (let* ((args
+            (remove "--parser="
+                    (append
+                     prettier-js-buffer-global-args
+                     prettier-js-args)))
+           (parser
+            (unless (or (and buffer-file-name
+                             (file-name-extension buffer-file-name))
+                        (seq-find
+                         (apply-partially #'string-prefix-p "--parser=")
+                         args))
+              (cdr (assq major-mode
+                         prettier-js-buffer-major-modes-parsers)))))
       (setq-local prettier-js-args
                   (if parser
-                      (append (list "--parser=" parser) args)
+                      (append (list (concat "--parser=" parser)) args)
                     args))
-      (setq-local prettier-js-command (or (prettier-js-buffer-local-command)
-                                          (executable-find "prettier")))
+      (setq-local prettier-js-command (executable-find "prettier"))
       (setq-local prettier-js-show-errors 'echo))))
 
 (defun prettier-js-buffer-or-region ()
   "Run PRETTIER-FN with ARGS or `prettier-js'.
 If value of the variable `buffer-file-name' is nil, run `prettier-js',
 otherwise run prettier-fn."
-  (prettier-js-setup)
   (cond ((save-excursion
            (goto-char (point-min))
-           (prettier-js-buffer-next-single-char-property-change))
+           (prettier-js-next-read-only-property-change))
          (prettier-js-format-non-readonly-regions))
         ((and (region-active-p)
               (use-region-p))
@@ -571,6 +472,7 @@ otherwise run prettier-fn."
 (defun prettier-js ()
   "Format the current buffer according to the prettier tool."
   (interactive)
+  (prettier-js-setup)
   (prettier-js-buffer-or-region))
 
 ;;;###autoload
@@ -579,7 +481,8 @@ otherwise run prettier-fn."
   :lighter " Prettier"
   :global nil
   (if prettier-js-mode
-      (add-hook 'before-save-hook #'prettier-js-buffer-or-region nil 'local)
+      (progn (prettier-js-setup)
+             (add-hook 'before-save-hook #'prettier-js-buffer-or-region nil 'local))
     (remove-hook 'before-save-hook #'prettier-js-buffer-or-region 'local)))
 
 
