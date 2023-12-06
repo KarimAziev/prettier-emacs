@@ -243,7 +243,7 @@ Return the position of point if found, or nil."
 (defun prettier-js--goto-line (line)
   "Move cursor to line LINE."
   (goto-char (point-min))
-    (forward-line (1- line)))
+  (forward-line (1- line)))
 
 (defun prettier-js--apply-rcs-patch (patch-buffer)
   "Apply an RCS-formatted diff from PATCH-BUFFER to the current buffer."
