@@ -7,10 +7,9 @@
 ;; Author: James Long and contributors
 ;;         Karim Aziiev <karim.aziiev@gmail.com>
 ;; Created: 10 January 2017
-;; Url: https://github.com/prettier/prettier-emacs
+;; Url: https://github.com/KarimAziev/prettier-emacs
 ;; Keywords: convenience wp edit js
-;; Package-Requires: ((emacs "27.1") (transient "0.3.7"))
-
+;; Package-Requires: ((emacs "29.1") (transient "0.3.7"))
 
 
 ;; Redistribution and use in source and binary forms, with or without
@@ -117,11 +116,9 @@ a `before-save-hook'."
                                                     (js-mode . "babel")
                                                     (js2-mode . "babel")
                                                     (js-ts-mode . "babel")
-                                                    (typescript-mode .
-                                                                     "typescript")
+                                                    (typescript-mode . "typescript")
                                                     (tsx-ts-mode . "typescript")
-                                                    (typescript-ts-mode .
-                                                                        "typescript")
+                                                    (typescript-ts-mode . "typescript")
                                                     (json-mode . "json")
                                                     (css-mode . "css")
                                                     (css-ts-mode . "css")
@@ -136,57 +133,12 @@ a `before-save-hook'."
           :value-type (string :tag "Parser")))
 
 
-(defun prettier-js-buffer-find-exec ()
-  "Return prettier executable, either from node_modules or globally."
-  (let ((dir default-directory)
-        (node-modules)
-        (found))
-    (while (setq node-modules
-                 (unless found
-                   (setq dir (locate-dominating-file
-                              dir
-                              "node_modules"))))
-      (setq dir (let ((parent (file-name-directory
-                               (directory-file-name
-                                (expand-file-name dir default-directory)))))
-                  (when (and
-                         (file-exists-p dir)
-                         (file-exists-p parent)
-                         (not (equal
-                               (file-truename (directory-file-name
-                                               (expand-file-name dir)))
-                               (file-truename (directory-file-name
-                                               (expand-file-name parent))))))
-                    (if (file-name-absolute-p dir)
-                        (directory-file-name parent)
-                      (file-relative-name parent)))))
-      (let ((file (expand-file-name "node_modules/.bin/prettier" node-modules)))
-        (setq found
-              (when (and (file-exists-p file)
-                         (file-executable-p file))
-                file))))
-    (or found (executable-find "prettier"))))
-
-(defun prettier-js-buffer-node-modules-bin-files ()
-  "Look up directory hierarchy for executable files in node_modules/.bin."
-  (when-let* ((node-modules
-               (locate-dominating-file
-                default-directory
-                "node_modules"))
-              (exec-dir
-               (expand-file-name "node_modules/.bin/" node-modules))
-              (commands
-               (seq-filter #'file-executable-p
-                           (and (file-exists-p exec-dir)
-                                (directory-files-recursively exec-dir ".")))))
-    commands))
-
 (defun prettier-js-buffer-local-command ()
   "Return local command for prettier."
-  (seq-find (lambda (it)
-              (string= "prettier"
-                       (file-name-base it)))
-            (prettier-js-buffer-node-modules-bin-files)))
+  (when-let ((dir (locate-dominating-file
+                   default-directory
+                   "node_modules/.bin/prettier")))
+    (expand-file-name "node_modules/.bin/prettier" dir)))
 
 (defun prettier-js-buffer-string (string &rest options)
   "Apply prettier on STRING with OPTIONS.
@@ -228,6 +180,7 @@ Return list of two elements: status (t or nil) and string with result."
         formatted))))
 
 
+;;;###autoload
 (defun prettier-js-buffer-region ()
   "Run PRETTIER-FN with ARGS or `prettier-js'.
 If value of the variable `buffer-file-name' is nil, run `prettier-js',
@@ -255,15 +208,14 @@ otherwise run prettier-fn."
 
 (defun prettier-js-next-read-only-property-change ()
   "Jump to the position of next read-only property change.
+
 Return the position of point if found, or nil."
   (when-let ((beg (next-single-property-change (point) 'read-only)))
     (goto-char beg)
     beg))
 
 (defun prettier-js-format-non-readonly-regions ()
-  "Run PRETTIER-FN with ARGS or `prettier-js'.
-If value of the variable `buffer-file-name' is nil, run `prettier-js',
-otherwise run prettier-fn."
+  "Format non-read-only regions with Prettier."
   (save-excursion
     (let* ((args prettier-js-args)
            (res)
@@ -296,46 +248,47 @@ otherwise run prettier-fn."
 (defun prettier-js--apply-rcs-patch (patch-buffer)
   "Apply an RCS-formatted diff from PATCH-BUFFER to the current buffer."
   (let ((target-buffer (current-buffer))
-        ;; Relative offset between buffer line numbers and line numbers
-        ;; in patch.
-        ;;
-        ;; Line numbers in the patch are based on the source file, so
-        ;; we have to keep an offset when making changes to the
-        ;; buffer.
-        ;;
-        ;; Appending lines decrements the offset (possibly making it
-        ;; negative), deleting lines increments it. This order
-        ;; simplifies the forward-line invocations.
+  ;; Relative offset between buffer line numbers and line numbers
+  ;; in patch.
+  ;;
+  ;; Line numbers in the patch are based on the source file, so
+  ;; we have to keep an offset when making changes to the
+  ;; buffer.
+  ;;
+  ;; Appending lines decrements the offset (possibly making it
+  ;; negative), deleting lines increments it. This order
+  ;; simplifies the forward-line invocations.
         (line-offset 0))
     (save-excursion
       (with-current-buffer patch-buffer
         (goto-char (point-min))
         (while (not (eobp))
           (unless (looking-at "^\\([ad]\\)\\([0-9]+\\) \\([0-9]+\\)")
-            (error "Invalid rcs patch or internal error in prettier-js--apply-rcs-patch"))
+            (error
+             "Invalid rcs patch or internal error in prettier-js--apply-rcs-patch"))
           (forward-line)
           (let ((action (match-string 1))
                 (from (string-to-number (match-string 2)))
                 (len  (string-to-number (match-string 3))))
-            (cond
-             ((equal action "a")
-              (let ((start (point)))
-                (forward-line len)
-                (let ((text (buffer-substring start (point))))
-                  (with-current-buffer target-buffer
-                    (setq line-offset (- line-offset len))
-                    (goto-char (point-min))
-                    (forward-line (- from len line-offset))
-                    (insert text)))))
-             ((equal action "d")
-              (with-current-buffer target-buffer
-                (prettier-js--goto-line (- from line-offset))
-                (setq line-offset (+ line-offset len))
-                (let ((beg (point)))
-                  (forward-line len)
-                  (delete-region (point) beg))))
-             (t
-              (error "Invalid rcs patch or internal error in prettier-js--apply-rcs-patch")))))))))
+            (cond ((equal action "a")
+                   (let ((start (point)))
+                     (forward-line len)
+                     (let ((text (buffer-substring start (point))))
+                       (with-current-buffer target-buffer
+                         (setq line-offset (- line-offset len))
+                         (goto-char (point-min))
+                         (forward-line (- from len line-offset))
+                         (insert text)))))
+                  ((equal action "d")
+                   (with-current-buffer target-buffer
+                     (prettier-js--goto-line (- from line-offset))
+                     (setq line-offset (+ line-offset len))
+                     (let ((beg (point)))
+                       (forward-line len)
+                       (delete-region (point) beg))))
+                  (t
+                   (error
+                    "Invalid rcs patch or internal error in prettier-js--apply-rcs-patch")))))))))
 
 (defun prettier-js--process-errors (filename errorfile errbuf)
   "Process errors for FILENAME, using an ERRORFILE.
@@ -374,7 +327,8 @@ Display the output in ERRBUF"
                                               "*prettier errors*")))
          (patchbuf (get-buffer-create "*prettier patch*"))
          (coding-system-for-read 'utf-8)
-         (coding-system-for-write 'utf-8))
+         (coding-system-for-write 'utf-8)
+         (cmd prettier-js-command))
     (unwind-protect
         (save-restriction
           (widen)
@@ -388,14 +342,13 @@ Display the output in ERRBUF"
           (if
               (zerop
                (apply #'call-process
-                      prettier-js-command bufferfile (list
-                                                      (list :file
-                                                            outputfile)
-                                                      errorfile)
+                      cmd bufferfile (list
+                                      (list :file
+                                            outputfile)
+                                      errorfile)
                       nil
                       (append prettier-js-args
                               (list
-                               "--stdin"
                                "--stdin-filepath"
                                buffer-file-name))))
               (progn
@@ -404,8 +357,10 @@ Display the output in ERRBUF"
                                      "--strip-trailing-cr" "-"
                                      outputfile)
                 (prettier-js--apply-rcs-patch patchbuf)
-                (message "Applied prettier `%s' with args `%s'"
-                         prettier-js-command prettier-js-args)
+                (message (concat (format "Applied prettier `%s'" cmd)
+                                 (if prettier-js-args
+                                     (format " with args `%s'" prettier-js-args)
+                                   "")))
                 (if errbuf (prettier-js--kill-error-buffer errbuf)))
             (message "Could not apply prettier")
             (if errbuf
@@ -418,9 +373,7 @@ Display the output in ERRBUF"
 
 
 (defun prettier-js-setup ()
-  "Run PRETTIER-FN with ARGS or `prettier-js'.
-If value of the variable `buffer-file-name' is nil, run `prettier-js',
-otherwise run prettier-fn."
+  "Configure Prettier formatting options for current buffer."
   (if-let ((local-prettier
             (when buffer-file-name
               (prettier-js-buffer-local-command))))
@@ -446,9 +399,7 @@ otherwise run prettier-fn."
       (setq-local prettier-js-show-errors 'echo))))
 
 (defun prettier-js-buffer-or-region ()
-  "Run PRETTIER-FN with ARGS or `prettier-js'.
-If value of the variable `buffer-file-name' is nil, run `prettier-js',
-otherwise run prettier-fn."
+  "Format non-read-only regions or the whole buffer using Prettier."
   (cond ((save-excursion
            (goto-char (point-min))
            (prettier-js-next-read-only-property-change))
@@ -461,16 +412,16 @@ otherwise run prettier-fn."
           prettier-js-args))
         ((and buffer-file-name)
          (prettier-js-current-file))
-        (t          (prettier-js-buffer-format-region
-                     (point-min)
-                     (point-max)
-                     prettier-js-args))))
+        (t (prettier-js-buffer-format-region
+            (point-min)
+            (point-max)
+            prettier-js-args))))
 
 
 
 ;;;###autoload
 (defun prettier-js ()
-  "Format the current buffer according to the prettier tool."
+  "Format code using Prettier."
   (interactive)
   (prettier-js-setup)
   (prettier-js-buffer-or-region))
