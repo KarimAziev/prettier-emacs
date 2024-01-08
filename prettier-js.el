@@ -126,7 +126,44 @@ a `before-save-hook'."
                                                     (html-mode . "html")
                                                     (scss-mode . "scss")
                                                     (yaml-mode . "yaml"))
-  "Alist of allowed major modes and corresponding prettier parsers."
+  "Alist mapping major modes to Prettier parsers.
+
+An alist mapping major modes to Prettier parsers.
+
+Each element is a cons cell `(major-mode . parser)`, where `major-mode' is a
+symbol representing an Emacs major mode, and `parser' is a string specifying the
+Prettier parser to use for files in that mode.
+
+When formatting a buffer, the appropriate parser is selected based on the
+buffer's major mode. If the major mode of the current buffer is present in this
+alist, its corresponding parser is used as an argument to the Prettier command.
+
+Ensure that the parsers specified are valid according to the Prettier
+documentation and that the corresponding Prettier plugins are installed."
+  :group 'prettier-js
+  :type '(alist
+          :key-type (symbol :tag "Major mode")
+          :value-type (string :tag "Plugin")))
+
+(defcustom prettier-js-buffer-plugins-alist '((sh-base-mode . "prettier-plugin-sh"))
+  "Alist mapping major modes to Prettier plugins.
+
+An association list mapping major modes to Prettier plugins used for formatting
+buffers in those modes. Each element of the list is a cons cell where the car is
+the major mode symbol and the cdr is a string specifying the name of the
+Prettier plugin to use.
+
+To configure a Prettier plugin for a specific major mode, add an entry to the
+list with the major mode symbol and the corresponding plugin name. For example,
+to use the \"prettier-plugin-sh\" for `sh-base-mode', add the following to the
+list:
+
+`(sh-base-mode . \"prettier-plugin-sh\")`
+
+When formatting a buffer, if the buffer's major mode matches one of the modes in
+the list, the specified plugin will be used by Prettier. If no entry for the
+major mode is found, Prettier will use its default behavior for determining the
+appropriate plugin."
   :group 'prettier-js
   :type '(alist
           :key-type (symbol :tag "Major mode")
@@ -370,10 +407,95 @@ Display the output in ERRBUF"
       (delete-file errorfile)
       (delete-file bufferfile)
       (delete-file outputfile))))
+(declare-function json-read "json")
+(defvar json-object-type)
+(defvar json-array-type)
+(defvar json-null)
+(defvar json-false)
 
+(defun prettier-js-read-json-file (file &optional object-type array-type
+                                        null-object false-object)
+  "Parse FILE with natively compiled function or with json library.
+
+The argument OBJECT-TYPE specifies which Lisp type is used
+to represent objects; it can be `hash-table', `alist' or `plist'.  It
+defaults to `alist'.
+
+The argument ARRAY-TYPE specifies which Lisp type is used
+to represent arrays; `array' or `vector' and `list'.
+
+The argument NULL-OBJECT specifies which object to use
+to represent a JSON null value.  It defaults to `:null'.
+
+The argument FALSE-OBJECT specifies which object to use to
+represent a JSON false value.  It defaults to `:false'."
+  (if (and (fboundp 'json-parse-string)
+           (fboundp 'json-available-p)
+           (json-available-p))
+      (with-temp-buffer (insert-file-contents file)
+                        (goto-char (point-min))
+                        (json-parse-buffer
+                         :object-type (or object-type 'alist)
+                         :array-type
+                         (pcase array-type
+                           ('list 'list)
+                           ('vector 'array)
+                           (_ 'array))
+                         :null-object (or null-object :null)
+                         :false-object (or false-object :false)))
+    (with-temp-buffer
+      (require 'json)
+      (insert-file-contents file)
+      (goto-char (point-min))
+      (let ((json-object-type (or object-type 'alist))
+            (json-array-type
+             (pcase array-type
+               ('list 'list)
+               ('array 'vector)
+               (_ 'vector)))
+            (json-null (or null-object :null))
+            (json-false (or false-object :false)))
+        (json-read)))))
+
+(defun prettier-js-setup-plugin (plugin mode)
+  "Set up Prettier PLUGIN for specified MODE.
+
+Argument PLUGIN is a string specifying the name of the prettier plugin to set
+up.
+
+Argument MODE is a symbol representing the major mode in which the PLUGIN should
+be set up."
+  (when (derived-mode-p mode)
+    (when-let* ((prettiery-bin (file-truename prettier-js-command))
+                (file (file-truename prettiery-bin))
+                (ext (file-name-extension file))
+                (dir
+                 (when (and ext (string= ext "cjs"))
+                   (file-name-directory file)))
+                (node_modules-parent-dir (locate-dominating-file dir
+                                                                 "node_modules"))
+                (package-json (expand-file-name
+                               (concat "node_modules/" plugin "/package.json")
+                               node_modules-parent-dir))
+                (main
+                 (alist-get 'main (prettier-js-read-json-file package-json)))
+                (plugin-file (expand-file-name
+                              main
+                              (expand-file-name (concat "node_modules/" plugin)
+                                                node_modules-parent-dir))))
+      (when (file-exists-p plugin-file)
+        (setq prettier-js-args (append prettier-js-args
+                                       (list "--plugin"
+                                             plugin-file)))))))
 
 (defun prettier-js-setup ()
-  "Configure Prettier formatting options for current buffer."
+  "Set up the Prettier command for the current buffer.
+
+Determine the appropriate Prettier parser based on the buffer's major mode.
+
+Append necessary arguments to the Prettier command.
+
+Associate Prettier plugins with corresponding major modes."
   (if-let ((local-prettier
             (when buffer-file-name
               (prettier-js-buffer-local-command))))
@@ -396,7 +518,9 @@ Display the output in ERRBUF"
                       (append (list (concat "--parser=" parser)) args)
                     args))
       (setq-local prettier-js-command (executable-find "prettier"))
-      (setq-local prettier-js-show-errors 'echo))))
+      (setq-local prettier-js-show-errors 'echo)
+      (pcase-dolist (`(,mode . ,plugin) prettier-js-buffer-plugins-alist)
+        (prettier-js-setup-plugin plugin mode)))))
 
 (defun prettier-js-buffer-or-region ()
   "Format non-read-only regions or the whole buffer using Prettier."
