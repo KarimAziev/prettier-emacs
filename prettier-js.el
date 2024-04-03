@@ -112,7 +112,7 @@ a `before-save-hook'."
           :value-type (string :tag "Parser")))
 
 (defcustom prettier-js-buffer-major-modes-parsers '((markdown-mode . "markdown")
-                                                    (gfm-mode "markdown")
+                                                    (gfm-mode . "markdown")
                                                     (js-mode . "babel")
                                                     (js2-mode . "babel")
                                                     (js-ts-mode . "babel")
