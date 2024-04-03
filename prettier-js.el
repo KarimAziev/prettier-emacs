@@ -79,7 +79,12 @@ a `before-save-hook'."
       :group 'prettier-js)
 
 
-(defcustom prettier-js-buffer-global-args '("--single-quote")
+(defcustom prettier-js-buffer-global-args '("--single-quote"
+                                            "--bracket-same-line"
+                                            "--jsx-single-quote"
+                                            "--ignore-unknown"
+                                            "--html-whitespace-sensitivity"
+                                            "ignore")
   "List of default global args to send to prettier command."
   :type '(repeat string)
   :group 'prettier-js)
@@ -501,10 +506,9 @@ Associate Prettier plugins with corresponding major modes."
               (prettier-js-buffer-local-command))))
       (setq-local prettier-js-command local-prettier)
     (let* ((args
-            (remove "--parser="
-                    (append
-                     prettier-js-buffer-global-args
-                     prettier-js-args)))
+            (append
+             prettier-js-buffer-global-args
+             prettier-js-args))
            (parser
             (unless (or (and buffer-file-name
                              (file-name-extension buffer-file-name))
