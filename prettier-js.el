@@ -67,24 +67,23 @@
 (make-variable-buffer-local 'prettier-js-args)
 
 (defcustom prettier-js-show-errors 'buffer
-    "Where to display prettier error output.
+  "Where to display prettier error output.
 It can either be displayed in its own buffer, in the echo area, or not at all.
 Please note that Emacs outputs to the echo area when writing
 files and will overwrite prettier's echo output if used from inside
 a `before-save-hook'."
-    :type '(choice
-            (const :tag "Own buffer" buffer)
-            (const :tag "Echo area" echo)
-            (const :tag "None" nil))
-      :group 'prettier-js)
+  :type '(choice
+          (const :tag "Own buffer" buffer)
+          (const :tag "Echo area" echo)
+          (const :tag "None" nil))
+  :group 'prettier-js)
 
 
 (defcustom prettier-js-buffer-global-args '("--single-quote"
                                             "--bracket-same-line"
                                             "--jsx-single-quote"
-                                            "--ignore-unknown"
-                                            "--html-whitespace-sensitivity"
-                                            "ignore")
+                                            "--html-whitespace-sensitivity=ignore"
+                                            "--ignore-unknown")
   "List of default global args to send to prettier command."
   :type '(repeat string)
   :group 'prettier-js)
@@ -202,7 +201,8 @@ Return list of two elements: status (t or nil) and string with result."
              (message "Applied prettier `%s' with args `%s'"
                       prettier-js-command options)
              (buffer-string))
-            (t (message "prettier errors: %s" (buffer-string))
+            (t (message "prettier errors with args: `%s': %s" options
+                        (buffer-string))
                nil)))))
 
 (defun prettier-js-buffer-format-region (beg end &rest args)
@@ -335,19 +335,20 @@ Return the position of point if found, or nil."
 (defun prettier-js--process-errors (filename errorfile errbuf)
   "Process errors for FILENAME, using an ERRORFILE.
 Display the output in ERRBUF"
-  (with-current-buffer errbuf
-    (if (eq prettier-js-show-errors 'echo)
-        (progn
-          (message "%s" (buffer-string))
-          (prettier-js--kill-error-buffer errbuf))
-      (insert-file-contents errorfile nil nil nil)
-      ;; Convert the prettier stderr to something understood by the compilation mode.
-      (goto-char (point-min))
-      (insert "prettier errors:\n")
-      (while (search-forward-regexp "^stdin" nil t)
-        (replace-match (file-name-nondirectory filename)))
-      (compilation-mode)
-      (display-buffer errbuf))))
+  (let ((error-output prettier-js-show-errors))
+    (with-current-buffer errbuf
+      (if (eq error-output 'echo)
+          (progn
+            (message "%s" (buffer-string))
+            (prettier-js--kill-error-buffer errbuf))
+        (insert-file-contents errorfile nil nil nil)
+        ;; Convert the prettier stderr to something understood by the compilation mode.
+        (goto-char (point-min))
+        (insert "prettier errors:\n")
+        (while (search-forward-regexp "^stdin" nil t)
+          (replace-match (file-name-nondirectory filename)))
+        (compilation-mode)
+        (display-buffer errbuf)))))
 
 (defun prettier-js--kill-error-buffer (errbuf)
   "Kill buffer ERRBUF."
@@ -412,6 +413,7 @@ Display the output in ERRBUF"
       (delete-file errorfile)
       (delete-file bufferfile)
       (delete-file outputfile))))
+
 (declare-function json-read "json")
 (defvar json-object-type)
 (defvar json-array-type)
@@ -489,9 +491,90 @@ be set up."
                               (expand-file-name (concat "node_modules/" plugin)
                                                 node_modules-parent-dir))))
       (when (file-exists-p plugin-file)
-        (setq prettier-js-args (append prettier-js-args
-                                       (list "--plugin"
-                                             plugin-file)))))))
+        (setq prettier-js-args (prettier-js-merge-args prettier-js-args
+                                                       (list "--plugin"
+                                                             plugin-file)))))))
+
+
+(defun prettier-js-has-arg-p (arg args)
+  "Check if ARG is present in ARGS, either directly or as a prefix.
+
+Argument ARG is the string to search for in ARGS.
+
+Argument ARGS is a list of strings to be searched."
+  (or (member arg args)
+      (seq-find
+       (apply-partially #'string-prefix-p (concat arg "="))
+       args)))
+
+
+(defun prettier-js-remove-arg (arg args)
+  "Remove specified ARG from ARGS, handling value associations.
+
+Argument ARG is the argument to remove from ARGS.
+
+Argument ARGS is a list of arguments from which ARG should be removed."
+  (let* ((pos (seq-position args arg))
+         (value
+          (and pos
+               (nth (1+ pos) args)))
+         (arg-prefix (concat arg "="))
+         (arg-prefix-val))
+    (when (and value
+               (string-prefix-p "-" value))
+      (setq value nil))
+    (cond ((and pos
+                (not value))
+           (remove arg args))
+          ((and pos value)
+           (append (seq-subseq args 0 (max 0 (1- pos)))
+                   (seq-subseq args (1+ (1+ pos)))))
+          ((setq arg-prefix-val (seq-find
+                                 (apply-partially #'string-prefix-p arg-prefix)
+                                 args))
+           (remove arg-prefix-val args))
+          (t args))))
+
+(defun prettier-js-get-arg-value (arg args)
+  "Extract the value of a specified argument ARG from a list ARGS.
+
+Argument ARG is the argument name to search for in ARGS.
+
+Argument ARGS is a list of command-line arguments."
+  (let ((value (cadr (member arg args))))
+    (if (and value
+             (not (string-prefix-p "-" value)))
+        value
+      (when-let ((found (seq-find
+                         (apply-partially #'string-prefix-p (concat arg "="))
+                         args)))
+        (substring-no-properties found (1+ (length arg)))))))
+
+(defun prettier-js-merge-args (args override-args)
+  "Merge ARGS with OVERRIDE-ARGS, removing duplicates based on `arg' names.
+
+Argument ARGS is a list of strings representing arguments to merge.
+
+Argument OVERRIDE-ARGS is a list of strings representing arguments that will
+override ARGS."
+  (let ((result))
+    (while args
+      (let* ((arg (pop args))
+             (val-idx (and arg
+                           (string-match-p "=" arg)))
+             (val (if val-idx
+                      (substring-no-properties arg (1+ val-idx))
+                    (and (car args)
+                         (not (string-prefix-p "-" (car args)))
+                         (pop args)))))
+        (when val-idx
+          (setq arg (substring-no-properties arg 0 val-idx)))
+        (unless (prettier-js-has-arg-p arg override-args)
+          (setq result (append result (if val-idx
+                                          (list (concat arg "=" val))
+                                        (delq nil (list arg val))))))))
+    (append result override-args)))
+
 
 (defun prettier-js-setup ()
   "Set up the Prettier command for the current buffer.
@@ -506,7 +589,7 @@ Associate Prettier plugins with corresponding major modes."
               (prettier-js-buffer-local-command))))
       (setq-local prettier-js-command local-prettier)
     (let* ((args
-            (append
+            (prettier-js-merge-args
              prettier-js-buffer-global-args
              prettier-js-args))
            (parser
@@ -519,7 +602,9 @@ Associate Prettier plugins with corresponding major modes."
                          prettier-js-buffer-major-modes-parsers)))))
       (setq-local prettier-js-args
                   (if parser
-                      (append (list (concat "--parser=" parser)) args)
+                      (prettier-js-merge-args
+                       args
+                       (list (concat "--parser=" parser)))
                     args))
       (setq-local prettier-js-command (executable-find "prettier"))
       (setq-local prettier-js-show-errors 'echo)
