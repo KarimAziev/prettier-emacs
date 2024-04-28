@@ -9,7 +9,7 @@
 ;; Created: 10 January 2017
 ;; Url: https://github.com/KarimAziev/prettier-emacs
 ;; Keywords: convenience wp edit js
-;; Package-Requires: ((emacs "29.1") (transient "0.3.7"))
+;; Package-Requires: ((emacs "29.1"))
 
 
 ;; Redistribution and use in source and binary forms, with or without
