@@ -42,7 +42,13 @@
 ;; This file is not part of GNU Emacs.
 
 ;;; Commentary:
-;; Formats your JavaScript code using 'prettier' on file save.
+
+;; This minor mode provides automatic formatting for JavaScript code using
+;; Prettier. When enabled, it formats the code in the current buffer before
+;; saving the file. The mode supports various configuration options, including
+;; specifying the Prettier command, arguments, and handling errors. It also
+;; allows for the use of Prettier plugins and custom parsers based on file
+;; extensions or major modes.
 
 ;;; Code:
 
