@@ -403,44 +403,48 @@ Display the output in ERRBUF"
          (patchbuf (get-buffer-create "*prettier patch*"))
          (coding-system-for-read 'utf-8)
          (coding-system-for-write 'utf-8)
-         (cmd prettier-js-command))
+         (cmd prettier-js-command)
+         (args (append prettier-js-args
+                       (list
+                        "--stdin-filepath"
+                        buffer-file-name))))
     (unwind-protect
         (save-restriction
           (widen)
           (write-region nil nil bufferfile)
-          (if errbuf
-              (with-current-buffer errbuf
-                (setq buffer-read-only nil)
-                (erase-buffer)))
+          (when errbuf
+            (with-current-buffer errbuf
+              (setq buffer-read-only nil)
+              (erase-buffer)))
           (with-current-buffer patchbuf
             (erase-buffer))
-          (if
-              (zerop
-               (apply #'call-process
-                      cmd bufferfile (list
-                                      (list :file
-                                            outputfile)
-                                      errorfile)
-                      nil
-                      (append prettier-js-args
-                              (list
-                               "--stdin-filepath"
-                               buffer-file-name))))
-              (progn
-                (call-process-region (point-min)
-                                     (point-max) "diff" nil patchbuf nil "-n"
-                                     "--strip-trailing-cr" "-"
-                                     outputfile)
-                (prettier-js--apply-rcs-patch patchbuf)
-                (message (concat (format "Applied prettier `%s'" cmd)
-                                 (if prettier-js-args
-                                     (format " with args `%s'" prettier-js-args)
-                                   "")))
-                (if errbuf (prettier-js--kill-error-buffer errbuf)))
-            (message "Could not apply prettier")
-            (if errbuf
-                (prettier-js--process-errors (buffer-file-name) errorfile
-                                             errbuf))))
+          (cond ((zerop (apply #'call-process cmd bufferfile (list
+                                                              (list :file
+                                                                    outputfile)
+                                                              errorfile)
+                               nil args))
+                 (call-process-region (point-min)
+                                      (point-max) "diff" nil patchbuf nil "-n"
+                                      "--strip-trailing-cr" "-"
+                                      outputfile)
+                 (let ((size (with-temp-buffer
+                               (insert-file-contents outputfile)
+                               (buffer-size))))
+                   (unless (zerop size)
+                     (prettier-js--apply-rcs-patch patchbuf)
+                     (message (concat (format "Applied prettier `%s'" cmd)
+                                      (if prettier-js-args
+                                          (format " with args `%s'"
+                                                  prettier-js-args)
+                                        "")))
+                     (when errbuf
+                       (prettier-js--kill-error-buffer errbuf)))))
+                (t (message "Could not apply prettier")
+                   (when errbuf
+                     (prettier-js--process-errors
+                      (buffer-file-name)
+                      errorfile
+                      errbuf)))))
       (kill-buffer patchbuf)
       (delete-file errorfile)
       (delete-file bufferfile)
