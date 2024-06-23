@@ -679,10 +679,11 @@ Associate Prettier plugins with corresponding major modes."
   "Runs prettier on file save when this mode is turned on."
   :lighter " Prettier"
   :global nil
-  (if prettier-js-mode
-      (progn (prettier-js-setup)
-             (add-hook 'before-save-hook #'prettier-js-buffer-or-region nil 'local))
-    (remove-hook 'before-save-hook #'prettier-js-buffer-or-region 'local)))
+  (remove-hook 'before-save-hook #'prettier-js-buffer-or-region 'local)
+  (when prettier-js-mode
+    (prettier-js-setup)
+    (add-hook 'before-save-hook #'prettier-js-buffer-or-region nil
+              'local)))
 
 
 (provide 'prettier-js)
