@@ -173,6 +173,24 @@ appropriate plugin."
           :key-type (symbol :tag "Major mode")
           :value-type (string :tag "Parser")))
 
+(defcustom prettier-js-config-names '(".prettierrc" ".prettierrc.json"
+                                      ".prettierrc.yml"
+                                      ".prettierrc.yaml" ".prettierrc.json5"
+                                      ".prettierrc.js"
+                                      "prettier.config.js" ".prettierrc.mjs"
+                                      "prettier.config.mjs" ".prettierrc.cjs"
+                                      "prettier.config.cjs" ".prettierrc.toml")
+  "List of filenames recognized as Prettier configuration files.
+
+A list of filenames to search for Prettier configuration files.
+
+Each element should be a string representing a possible filename
+for a Prettier configuration file. The search will check for these
+files in the current directory and its parent directories."
+  :group 'prettier-js
+  :type '(repeat
+          (string :tag "Config filename")))
+
 
 (defun prettier-js-buffer-local-command ()
   "Return local command for prettier."
@@ -180,6 +198,20 @@ appropriate plugin."
                    default-directory
                    "node_modules/.bin/prettier")))
     (expand-file-name "node_modules/.bin/prettier" dir)))
+
+(defun prettier-js-resolve-config-file ()
+  "Locate and return the path of the nearest Prettier configuration file."
+  (let ((curr-dir default-directory)
+        (config-names prettier-js-config-names)
+        (found))
+    (while (and config-names
+                (not found))
+      (let* ((curr (car config-names))
+             (dir (locate-dominating-file curr-dir curr)))
+        (if dir
+            (setq found (expand-file-name curr dir))
+          (setq config-names (cdr config-names)))))
+    found))
 
 (defun prettier-js-buffer-string (string &rest options)
   "Apply prettier on STRING with OPTIONS.
@@ -588,10 +620,13 @@ Associate Prettier plugins with corresponding major modes."
             (when buffer-file-name
               (prettier-js-buffer-local-command))))
       (setq-local prettier-js-command local-prettier)
-    (let* ((args
-            (prettier-js-merge-args
-             prettier-js-buffer-global-args
-             prettier-js-args))
+    (let* ((conf-file (prettier-js-resolve-config-file))
+           (args
+            (if conf-file
+                (list "--config" conf-file)
+              (prettier-js-merge-args
+               prettier-js-buffer-global-args
+               prettier-js-args)))
            (parser
             (unless (or (and buffer-file-name
                              (file-name-extension buffer-file-name))
