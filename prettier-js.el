@@ -517,7 +517,8 @@ be set up."
                                (concat "node_modules/" plugin "/package.json")
                                node_modules-parent-dir))
                 (main
-                 (alist-get 'main (prettier-js-read-json-file package-json)))
+                 (when (file-exists-p package-json)
+                   (alist-get 'main (prettier-js-read-json-file package-json))))
                 (plugin-file (expand-file-name
                               main
                               (expand-file-name (concat "node_modules/" plugin)
