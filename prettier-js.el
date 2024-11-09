@@ -200,7 +200,7 @@ files in the current directory and its parent directories."
 
 (defun prettier-js-buffer-local-command ()
   "Return local command for prettier."
-  (when-let ((dir (locate-dominating-file
+  (when-let* ((dir (locate-dominating-file
                    default-directory
                    "node_modules/.bin/prettier")))
     (expand-file-name "node_modules/.bin/prettier" dir)))
@@ -222,7 +222,7 @@ files in the current directory and its parent directories."
 (defun prettier-js-buffer-string (string &rest options)
   "Apply prettier on STRING with OPTIONS.
 Return list of two elements: status (t or nil) and string with result."
-  (when-let ((prettier-cmd prettier-js-command))
+  (when-let* ((prettier-cmd prettier-js-command))
     (setq options (delq nil
                         (flatten-list options)))
     (with-temp-buffer
@@ -290,7 +290,7 @@ otherwise run prettier-fn."
   "Jump to the position of next read-only property change.
 
 Return the position of point if found, or nil."
-  (when-let ((beg (next-single-property-change (point) 'read-only)))
+  (when-let* ((beg (next-single-property-change (point) 'read-only)))
     (goto-char beg)
     beg))
 
@@ -588,7 +588,7 @@ Argument ARGS is a list of command-line arguments."
     (if (and value
              (not (string-prefix-p "-" value)))
         value
-      (when-let ((found (seq-find
+      (when-let* ((found (seq-find
                          (apply-partially #'string-prefix-p (concat arg "="))
                          args)))
         (substring-no-properties found (1+ (length arg)))))))
@@ -627,7 +627,7 @@ Determine the appropriate Prettier parser based on the buffer's major mode.
 Append necessary arguments to the Prettier command.
 
 Associate Prettier plugins with corresponding major modes."
-  (if-let ((local-prettier
+  (if-let* ((local-prettier
             (when buffer-file-name
               (prettier-js-buffer-local-command))))
       (setq-local prettier-js-command local-prettier)
