@@ -244,7 +244,13 @@ Return list of two elements: status (t or nil) and string with result."
                nil)))))
 
 (defun prettier-js-buffer-format-region (beg end &rest args)
-  "Run PRETTIER-FN with ARGS on region between BEG and END."
+  "Format a specified region in the buffer using Prettier.
+
+Argument BEG is the beginning position of the region to format.
+
+Argument END is the ending position of the region to format.
+
+Remaining arguments ARGS are additional options passed to the prettier command."
   (let* ((buff (current-buffer))
          (content (buffer-substring-no-properties
                    beg
@@ -262,9 +268,7 @@ Return list of two elements: status (t or nil) and string with result."
 
 ;;;###autoload
 (defun prettier-js-buffer-region ()
-  "Run PRETTIER-FN with ARGS or `prettier-js'.
-If value of the variable `buffer-file-name' is nil, run `prettier-js',
-otherwise run prettier-fn."
+  "Format the active region or entire buffer using Prettier."
   (interactive)
   (pcase-let* ((`(,beg . ,end)
                 (if (and (region-active-p)
@@ -295,7 +299,7 @@ Return the position of point if found, or nil."
     beg))
 
 (defun prettier-js-format-non-readonly-regions ()
-  "Format non-read-only regions with Prettier."
+  "Format non-readonly regions in the buffer using Prettier."
   (save-excursion
     (let* ((args prettier-js-args)
            (res)
@@ -321,7 +325,7 @@ Return the position of point if found, or nil."
 
 
 (defun prettier-js--goto-line (line)
-  "Move cursor to line LINE."
+  "Move the cursor to the specified LINE number in the buffer."
   (goto-char (point-min))
   (forward-line (1- line)))
 
@@ -394,7 +398,7 @@ Argument ERRBUF is the buffer used to display error messages."
         (display-buffer errbuf)))))
 
 (defun prettier-js--kill-error-buffer (errbuf)
-  "Kill buffer ERRBUF."
+  "Kill or quit the error buffer ERRBUF and erase its contents."
   (let ((win (get-buffer-window errbuf)))
     (if win
         (quit-window t win)
