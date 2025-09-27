@@ -371,15 +371,20 @@ Return the position of point if found, or nil."
                     "Invalid rcs patch or internal error in prettier-js--apply-rcs-patch")))))))))
 
 (defun prettier-js--process-errors (filename errorfile errbuf)
-  "Process errors for FILENAME, using an ERRORFILE.
-Display the output in ERRBUF"
+  "Process and display error messages from a Prettier error file.
+
+Argument FILENAME is the name of the file being processed.
+
+Argument ERRORFILE is the file containing error messages.
+
+Argument ERRBUF is the buffer used to display error messages."
   (let ((error-output prettier-js-show-errors))
     (with-current-buffer errbuf
+      (insert-file-contents errorfile nil nil nil)
       (if (eq error-output 'echo)
           (progn
             (message "%s" (buffer-string))
             (prettier-js--kill-error-buffer errbuf))
-        (insert-file-contents errorfile nil nil nil)
         ;; Convert the prettier stderr to something understood by the compilation mode.
         (goto-char (point-min))
         (insert "prettier errors:\n")
