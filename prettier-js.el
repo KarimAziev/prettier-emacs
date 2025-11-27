@@ -7,10 +7,9 @@
 ;; Author: James Long and contributors
 ;;         Karim Aziiev <karim.aziiev@gmail.com>
 ;; Created: 10 January 2017
-;; Url: https://github.com/KarimAziev/prettier-emacs
+;; URL: https://github.com/KarimAziev/prettier-emacs
 ;; Keywords: convenience wp edit js
-;; Package-Requires: ((emacs "29.1"))
-
+;; Package-Requires: ((emacs "30.1"))
 
 ;; Redistribution and use in source and binary forms, with or without
 ;; modification, are permitted provided that the following conditions are
@@ -85,11 +84,7 @@ a `before-save-hook'."
   :group 'prettier-js)
 
 
-(defcustom prettier-js-buffer-global-args '("--single-quote"
-                                            "--bracket-same-line"
-                                            "--jsx-single-quote"
-                                            "--html-whitespace-sensitivity=ignore"
-                                            "--ignore-unknown")
+(defcustom prettier-js-buffer-global-args '()
   "List of default global args to send to prettier command."
   :type '(repeat string)
   :group 'prettier-js)
@@ -637,8 +632,8 @@ Append necessary arguments to the Prettier command.
 
 Associate Prettier plugins with corresponding major modes."
   (if-let* ((local-prettier
-            (when buffer-file-name
-              (prettier-js-buffer-local-command))))
+             (when buffer-file-name
+               (prettier-js-buffer-local-command))))
       (setq-local prettier-js-command local-prettier)
     (let* ((conf-file (prettier-js-resolve-config-file))
            (args
@@ -648,11 +643,10 @@ Associate Prettier plugins with corresponding major modes."
                prettier-js-buffer-global-args
                prettier-js-args)))
            (parser
-            (unless (or (and buffer-file-name
-                             (file-name-extension buffer-file-name))
-                        (seq-find
-                         (apply-partially #'string-prefix-p "--parser=")
-                         args))
+            (unless (or
+                     (seq-find
+                      (apply-partially #'string-prefix-p "--parser=")
+                      args))
               (cdr (assq major-mode
                          prettier-js-buffer-major-modes-parsers)))))
       (setq-local prettier-js-args
