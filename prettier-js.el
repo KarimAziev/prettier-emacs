@@ -656,9 +656,11 @@ Associate Prettier plugins with corresponding major modes."
                        (list (concat "--parser=" parser)))
                     args))
       (setq-local prettier-js-command (executable-find "prettier"))
-      (setq-local prettier-js-show-errors 'echo)
-      (pcase-dolist (`(,mode . ,plugin) prettier-js-buffer-plugins-alist)
-        (prettier-js-setup-plugin plugin mode)))))
+      (if (not prettier-js-command)
+          (user-error "Prettier JS: prettier executable is not found")
+        (setq-local prettier-js-show-errors 'echo)
+        (pcase-dolist (`(,mode . ,plugin) prettier-js-buffer-plugins-alist)
+          (prettier-js-setup-plugin plugin mode))))))
 
 (defun prettier-js-buffer-or-region ()
   "Format non-read-only regions or the whole buffer using Prettier."
@@ -695,9 +697,18 @@ Associate Prettier plugins with corresponding major modes."
   :global nil
   (remove-hook 'before-save-hook #'prettier-js-buffer-or-region 'local)
   (when prettier-js-mode
-    (prettier-js-setup)
-    (add-hook 'before-save-hook #'prettier-js-buffer-or-region nil
-              'local)))
+    (condition-case err
+        (progn (prettier-js-setup)
+               (add-hook 'before-save-hook #'prettier-js-buffer-or-region nil
+                         'local))
+      (user-error
+       (let* ((msg (cdr-safe err))
+              (msg (if (and msg (consp msg)
+                            (car msg))
+                       (car msg)
+                     err)))
+         (message "%s" msg)))
+      (error (message "Prettier JS mode error: %s" err)))))
 
 
 (provide 'prettier-js)
